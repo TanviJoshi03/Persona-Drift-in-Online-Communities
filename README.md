@@ -243,10 +243,4 @@ Posts are filtered to exclude `[deleted]`/`[removed]` content and posts with few
 | Peak height ratio | < 1.5 | > 3.0 |
 | Temporal smoothness | 0.0 (flat) or very high | Similar to SBERT baseline |
 
----
 
-## Notes
-
-- GPU is optional. The code automatically falls back to CPU if CUDA is unavailable.
-- The `data_reddit/` folder in the repo is a placeholder. Run `download_data.py` to populate `data reddit/` with actual data.
-- The `output/` folder contains sample results from a previous run on r/technology.
