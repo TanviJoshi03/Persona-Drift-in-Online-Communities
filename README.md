@@ -2,232 +2,251 @@
 
 **CSE 261 Project** — Sara Chaudhari, Tanvi Ganesh Joshi — UC San Diego
 
-Unsupervised detection of persona drift in Reddit communities using a **Multi-View Drift Detector** that fuses neural text embeddings with distributional baselines, trained via weak supervision.
+Unsupervised detection of persona drift in Reddit communities using a **Multi-View Drift Detector** that fuses neural text embeddings with distributional baselines, trained via weak supervision (no manual labels required).
+
+---
+
+## Overview
+
+Online communities evolve over time — their language, topics, and tone shift in ways that are hard to track manually. This project builds a pipeline that:
+
+1. Collects Reddit posts from a chosen subreddit
+2. Groups them into monthly time windows
+3. Computes four complementary drift signals (SBERT, LDA, TF-IDF, MMD)
+4. Trains a neural fusion model to combine these signals into a single drift score
+5. Identifies when and why major persona shifts occurred
 
 ---
 
 ## Project Structure
 
 ```
-persona-drift/
-├── config.yaml
-├── requirements.txt
-├── download_data.py
-├── run_pipeline.py
-├── PROJECT_PLAN.md
+Persona-Drift-in-Online-Communities-main/
+├── config.yaml                  # Central configuration for the entire pipeline
+├── requirements.txt             # Python dependencies
+├── download_data.py             # Downloads and cleans Reddit data from HuggingFace
+├── run_pipeline.py              # Runs the full pipeline from the command line
 ├── README.md
-├── data reddit_tech/
-│   ├── dataset_clean.csv
-│   ├── train.csv
-│   ├── val.csv
-│   └── test.csv
+│
 ├── notebooks/
-│   └── final_pipeline.ipynb
+│   └── final_pipeline.ipynb     # Interactive notebook that runs the pipeline step-by-step
+│
 ├── src/
-│   ├── __init__.py
 │   ├── data/
-│   │   ├── __init__.py
-│   │   ├── load_reddit.py
-│   │   └── preprocess.py
+│   │   ├── load_reddit.py       # Loads Reddit data from local CSV or HuggingFace
+│   │   └── preprocess.py        # Groups posts into monthly windows, splits train/test
 │   ├── representation/
-│   │   ├── __init__.py
-│   │   ├── sbert_encoder.py
-│   │   └── baselines.py
+│   │   ├── sbert_encoder.py     # Encodes posts with Sentence-BERT into persona vectors
+│   │   └── baselines.py         # Computes SBERT, LDA, TF-IDF, and MMD drift signals
 │   ├── weak_supervision/
-│   │   ├── __init__.py
-│   │   └── labels.py
+│   │   └── labels.py            # Auto-labels transitions as stable/shift using percentiles
 │   ├── model/
-│   │   ├── __init__.py
-│   │   ├── drift_detector.py
-│   │   └── contrastive_encoder.py
+│   │   ├── drift_detector.py    # Multi-View Drift Detector (main model)
+│   │   └── contrastive_encoder.py  # Simpler baseline model (kept for comparison)
 │   ├── evaluation/
-│   │   ├── __init__.py
-│   │   └── metrics.py
+│   │   └── metrics.py           # Smoothness, correlation, NDCG, change-point F1, etc.
 │   └── interpret/
-│       ├── __init__.py
-│       ├── keywords.py
-│       ├── topics.py
-│       └── representative_posts.py
-└── outputs/
+│       ├── keywords.py          # Emerging/declining keywords and phrases at change points
+│       ├── topics.py            # LDA topic modeling per window
+│       └── representative_posts.py  # Finds posts closest to the window's persona vector
+│
+└── output/                      # Generated results (after running the pipeline)
+    ├── metrics.csv              # Evaluation metrics summary
+    ├── interpret.txt            # Top change points with keywords, topics, example posts
+    ├── detector.pt              # Trained model weights
+    ├── drift_curves.png         # Visualization of all drift curves
+    └── drift_curves.npz         # Raw drift curve data (NumPy archive)
 ```
 
 ---
 
 ## File Descriptions
 
-### Root-Level Files
+### Root-Level Scripts
 
 | File | Description |
 |---|---|
-| `config.yaml` | Settings file for the whole project. You change things here like which subreddit to analyze, how many posts to use, model training settings (learning rate, epochs, etc.), and where to save outputs. Every script and the notebook reads this file. |
-| `requirements.txt` | List of all Python libraries the project needs. Run `pip install -r requirements.txt` to install everything. |
-| `download_data.py` | Downloads Reddit posts from HuggingFace for a subreddit you choose. You can pick which subreddit (`--subreddit`), how many posts (`--max_posts`), and from what year onwards (`--min_year`). It cleans out deleted/short posts and saves the data as CSV files so you don't have to download again. |
-| `run_pipeline.py` | Runs the entire project from the command line (no notebook needed). Does everything: loads data, groups posts by month, computes all drift signals, trains the model, evaluates, makes plots, and saves results to `outputs/`. |
-| `PROJECT_PLAN.md` | Project planning document with our task breakdown and design decisions. |
-| `README.md` | This file. |
+| `config.yaml` | Central configuration file. Controls data source, subreddit selection, model hyperparameters (learning rate, epochs, dropout, etc.), representation settings, weak supervision thresholds, and output paths. Every script and the notebook reads this file. |
+| `requirements.txt` | Lists all Python dependencies with minimum versions. |
+| `download_data.py` | Downloads Reddit posts from HuggingFace for a chosen subreddit. Accepts CLI arguments: `--subreddit` (which community), `--max_posts` (limit), and `--min_year` (earliest year). Cleans out deleted/short posts and saves `dataset_clean.csv`, `train.csv`, `val.csv`, and `test.csv`. |
+| `run_pipeline.py` | Runs the entire pipeline end-to-end from the command line: loads data, segments by month, computes drift signals, trains the model, evaluates, generates plots, and saves everything to `output/`. |
 
-### `data reddit_tech/` — Downloaded Data
+### `src/data/` — Data Loading and Preprocessing
 
 | File | Description |
 |---|---|
-| `dataset_clean.csv` | The full cleaned dataset. Each row is one Reddit post with its text, timestamp, subreddit name, word count, and which split it belongs to. Sorted oldest to newest. This is the main data file the pipeline reads. |
-| `train.csv` | The first 75% of posts (earliest in time). Used to train the model and create weak labels. |
-| `val.csv` | The next 10% of posts. Used for validation during training. |
-| `test.csv` | The last 15% of posts (most recent). Used to evaluate the model on unseen data. |
+| `load_reddit.py` | Loads Reddit data from local CSV files if available, otherwise downloads from HuggingFace. Handles missing columns, corrupted rows, and fallback datasets. |
+| `preprocess.py` | Groups posts into temporal windows by month using timestamps. Falls back to fixed-size chunks if timestamps are unavailable. Also provides train/test splitting of window IDs. |
 
-### `notebooks/`
+### `src/representation/` — Text Representations and Drift Signals
 
 | File | Description |
 |---|---|
-| `final_pipeline.ipynb` | **The main notebook — run this.** Goes through the entire pipeline step by step: loads data, groups posts into monthly windows, encodes text, computes drift signals, trains the model, shows evaluation metrics, and generates all the plots (drift curves, heatmaps, scatter plots, radar charts, etc.). |
-
-### `src/data/` — Data Loading & Preprocessing
-
-| File | Description |
-|---|---|
-| `__init__.py` | Makes the functions in this folder importable by other files. |
-| `load_reddit.py` | Reads the Reddit data. First checks if you have data saved locally (CSV files); if yes, loads from there (no internet needed). If not, downloads from HuggingFace. Handles edge cases like missing columns or corrupted rows. |
-| `preprocess.py` | Groups posts into time windows. Looks at each post's timestamp and groups them by month (e.g., all Jan 2020 posts = one window, all Feb 2020 posts = another window). If timestamps aren't available, splits the data into equal-sized chunks instead. Also splits window IDs into train/test sets. |
-
-### `src/representation/` — Text Representations & Baselines
-
-| File | Description |
-|---|---|
-| `__init__.py` | Makes the functions in this folder importable. |
-| `sbert_encoder.py` | Converts Reddit posts into numbers (embeddings) using Sentence-BERT. For each monthly window, it encodes all posts and then averages them into a single **persona vector** — one vector that represents "what the community sounds like" that month. |
-| `baselines.py` | Computes four different ways to measure how much the community changed between consecutive months: **(1) SBERT** — how different the persona vectors are (cosine distance), **(2) LDA** — how much the discussion topics changed, **(3) TF-IDF** — how much the important keywords changed, **(4) MMD** — how different the full distributions of post embeddings are (catches subtle changes that averages miss). |
+| `sbert_encoder.py` | Encodes posts using Sentence-BERT and averages embeddings per window into a single **persona vector** — a dense representation of what the community sounds like in a given month. |
+| `baselines.py` | Computes four drift signals between consecutive windows: **(1) SBERT** — cosine distance between persona vectors, **(2) LDA** — Jensen-Shannon divergence of topic distributions, **(3) TF-IDF** — Jensen-Shannon divergence of keyword importance vectors, **(4) MMD** — Maximum Mean Discrepancy between full embedding distributions, capturing shifts that mean vectors miss. |
 
 ### `src/weak_supervision/` — Automatic Labeling
 
 | File | Description |
 |---|---|
-| `__init__.py` | Makes the functions in this folder importable. |
-| `labels.py` | Automatically creates training labels with no manual work. Looks at the SBERT distances between consecutive months and labels the smallest ones as "stable" (community didn't change much) and the largest ones as "shift" (community changed a lot). The model then learns from these labels. |
+| `labels.py` | Generates training labels without manual annotation. Computes cosine distances between consecutive persona vectors, then labels the lowest distances as "stable" (0) and highest as "shift" (1) using percentile thresholds. Middle-range transitions are left unlabeled. |
 
 ### `src/model/` — Neural Models
 
 | File | Description |
 |---|---|
-| `__init__.py` | Makes both models importable. |
-| `drift_detector.py` | **The main model we use.** Takes in the persona vectors for two consecutive months plus all four baseline drift signals, and predicts a single "drift score" — how much the community changed. It learns to combine all these signals together (that's the "multi-view fusion"). Trained using both the weak labels and the raw SBERT distances. Has smoothing built in to reduce noise in the output. |
-| `contrastive_encoder.py` | **The first model we tried (baseline).** A simpler approach that just projects persona vectors into a new space and measures cosine distance there. We replaced it with the Multi-View Drift Detector because that one gives better results by combining multiple signals instead of relying on just one. Kept here for comparison. |
+| `drift_detector.py` | **Main model.** The Multi-View Drift Detector takes persona-vector differences and all four baseline drift signals as input, fuses them through learned layers, and outputs a single drift score per transition. Trained with regression loss (on SBERT distances) plus contrastive loss (on weak labels). Supports optional Gaussian smoothing on the output curve. |
+| `contrastive_encoder.py` | Baseline model for comparison. Projects persona vectors into a learned space and uses cosine distance. Superseded by the Multi-View Drift Detector which combines multiple signals for better results. |
 
 ### `src/evaluation/` — Metrics
 
 | File | Description |
 |---|---|
-| `__init__.py` | Makes the metric functions importable. |
-| `metrics.py` | All the numbers we use to evaluate how well the model works. Includes: **smoothness** (is the drift curve noisy or clean?), **Spearman/Kendall correlation** (do different methods agree on when drift happened?), **R²** (how well does predicted drift match baseline?), **NDCG** (does the model rank the biggest changes correctly?), **peak detection** (can it find the biggest change points?), and **precision/recall/F1** for change-point detection. Also has `full_evaluation_report` which runs all metrics at once and gives you a summary. |
+| `metrics.py` | Computes evaluation metrics: **temporal smoothness**, **Spearman/Kendall correlation** between methods, **R²**, **NDCG** for ranking top changes, **peak detection**, and **change-point precision/recall/F1**. The `full_evaluation_report()` function runs all metrics and returns a summary. |
 
 ### `src/interpret/` — Interpretability
 
 | File | Description |
 |---|---|
-| `__init__.py` | Makes the functions in this folder importable. |
-| `keywords.py` | Tells you **what words changed** at a detected change point. Compares the text before and after the change and finds words that became more popular ("emerging") or less popular ("declining"). Also does the same for phrases (2-3 word combinations). |
-| `topics.py` | Tells you **what topics** a community is talking about in a given month. Uses LDA topic modeling to find clusters of related words (e.g., a "gaming hardware" topic or an "esports" topic). |
-| `representative_posts.py` | Finds the **most typical posts** for a given month — the ones whose meaning is closest to the average of all posts that month. Helps you read actual examples of what people were saying. |
+| `keywords.py` | Identifies what changed at detected change points by comparing TF-IDF vectors before and after. Reports emerging keywords (gained importance) and declining keywords (lost importance), plus bigram/trigram phrase shifts. |
+| `topics.py` | Runs LDA topic modeling on posts within a window to surface the main discussion topics (clusters of related words). |
+| `representative_posts.py` | Finds the most typical posts for a given window — those whose embeddings are closest to the window's persona vector. Useful for reading concrete examples of community discourse. |
 
-### `outputs/`
+### `notebooks/`
 
-Empty folder where results get saved: plots (PNG images), metric reports, and trained model files.
+| File | Description |
+|---|---|
+| `final_pipeline.ipynb` | Interactive notebook that runs the full pipeline step-by-step: data loading, temporal segmentation, representation, weak labeling, model training, evaluation, and visualization (drift curves, heatmaps, scatter plots). **Recommended way to explore the project.** |
+
+### `output/` — Generated Artifacts
+
+| File | Description |
+|---|---|
+| `metrics.csv` | Evaluation metrics (mean drift, smoothness, contrastiveness, Spearman, R², etc.). |
+| `interpret.txt` | Top change points with representative posts, emerging/declining keywords, and LDA topics. |
+| `detector.pt` | Saved weights of the trained Multi-View Drift Detector. |
+| `drift_curves.png` | Plot comparing all drift curves (SBERT, LDA, TF-IDF, MMD, learned). |
+| `drift_curves.npz` | NumPy archive containing raw drift curve arrays and window IDs. |
 
 ---
 
-## Quick Start
+## Setup and Installation
 
-### 1. Install
+### Prerequisites
+
+- Python 3.9 or higher
+- pip
+
+### Install Dependencies
 
 ```bash
-cd persona-drift
+cd Persona-Drift-in-Online-Communities-main
 pip install -r requirements.txt
 ```
 
-### 2. Download data
+### Download Data
+
+Download Reddit posts for your chosen subreddit:
 
 ```bash
 python download_data.py --subreddit technology --min_year 2019
 ```
 
-### 3. Run the final notebook (recommended)
+This creates a `data reddit/` folder containing:
+- `dataset_clean.csv` — full cleaned dataset (columns: `text`, `created_utc`, `subreddit`, `n_words`, `split`, `datetime_utc`, `year_month`)
+- `train.csv` — first 75% of posts (by time)
+- `val.csv` — next 10%
+- `test.csv` — last 15%
+
+You can customize the download:
+
+```bash
+python download_data.py --subreddit gaming --max_posts 500000 --min_year 2020
+```
+
+---
+
+## Running the Pipeline
+
+### Option A: Jupyter Notebook (Recommended)
 
 ```bash
 jupyter notebook notebooks/final_pipeline.ipynb
 ```
 
-Run all cells in order.
+Run all cells in order. The notebook walks through each stage with inline visualizations and explanations.
 
-### 4. Or run from command line
+### Option B: Command Line
 
 ```bash
 python run_pipeline.py
 ```
 
+Or with a custom config:
+
+```bash
+python run_pipeline.py --config config.yaml
+```
+
+Results are saved to the `output/` folder.
+
 ---
 
 ## How It Works
 
-### Pipeline
-
-1. **Data**: Load Pushshift Reddit comments (HuggingFace or local CSV), build monthly temporal windows.
-2. **Representation**: Compute four baseline drift signals between consecutive windows:
-   - **SBERT**: Cosine distance between mean persona vectors
+1. **Data** — Load Reddit posts (from local CSV or HuggingFace) and group them into monthly temporal windows.
+2. **Representation** — Encode posts with Sentence-BERT and compute four drift signals between consecutive windows:
+   - **SBERT**: cosine distance between mean persona vectors
    - **LDA**: Jensen-Shannon divergence of topic distributions
    - **TF-IDF**: Jensen-Shannon divergence of keyword vectors
-   - **MMD**: Maximum Mean Discrepancy between full embedding distributions (captures distributional shifts beyond means)
-3. **Weak supervision**: Label window transitions as "stable" or "shift" using percentile thresholds on SBERT distances (train windows only). No manual labels required.
-4. **Multi-View Drift Detector**: Neural fusion model that:
-   - Encodes persona-vector differences and element-wise interactions
-   - Fuses with all four baseline signals
-   - Predicts a drift score per transition
-   - Trained on ALL transitions (regression on SBERT distances) + contrastive loss on labeled pairs
-   - Post-processing: Gaussian temporal smoothing
-5. **Evaluation**: Drift-curve quality (smoothness, peak height), inter-method agreement (Spearman, Kendall, R², NDCG), contrastiveness improvement, and unsupervised change-point discovery.
-6. **Interpretability**: Representative posts, keyword/phrase shifts, and LDA topics at the top detected change points.
-
-### What Makes This Novel
-
-- **Multi-view fusion**: The detector jointly reasons over learned semantic features and four complementary drift signals, producing more robust change-point detection than any single method.
-- **MMD baseline**: Compares full embedding distributions (not just means), capturing higher-order distributional differences.
-- **Training on all transitions**: Uses continuous regression targets for all window pairs, not just binary labels on a small subset.
-- **Weak supervision framework**: No manual labels needed; stable/shift pairs derived automatically from percentile thresholds.
-- **Temporal smoothing**: Reduces noise in the final drift curve while preserving real peaks.
+   - **MMD**: Maximum Mean Discrepancy between full embedding distributions
+3. **Weak Supervision** — Automatically label transitions as "stable" or "shift" using percentile thresholds on SBERT distances. No manual annotation needed.
+4. **Multi-View Drift Detector** — Train a neural fusion model that combines persona-vector differences with all four baseline signals, producing a single drift score per transition. Uses both regression and contrastive losses.
+5. **Evaluation** — Measure drift-curve quality (smoothness, peak height), inter-method agreement (Spearman, Kendall, R², NDCG), and change-point detection accuracy (precision, recall, F1).
+6. **Interpretability** — At detected change points, surface representative posts, emerging/declining keywords, and LDA topics to explain *why* the community changed.
 
 ---
 
 ## Configuration
 
-Edit **`config.yaml`** to change:
+Edit `config.yaml` to customize the pipeline:
 
-- **data**: `local_data_dir`, `dataset_name`, `subreddit_config`, `max_samples`, `min_posts_per_month`
-- **split**: `train_ratio` (temporal holdout, default 0.75)
-- **representation**: `sbert_model`, `lda_n_topics`, `tfidf_max_features`
-- **weak_supervision**: `stable_percentile`, `shift_percentile`
-- **detector**: `persona_dim`, `n_baselines`, `proj_dim`, `hidden_dim`, `dropout`, `learning_rate`, `epochs`, `patience`, `contrastive_weight`, `gradient_clip`, `smooth_sigma`
-- **output**: `save_dir`, `save_artifacts`
+| Section | Key Settings |
+|---|---|
+| `data` | `local_data_dir` (path to CSV data), `subreddit_config`, `max_samples`, `min_posts_per_month` |
+| `split` | `train_ratio` (default 0.75) |
+| `representation` | `sbert_model`, `lda_n_topics`, `tfidf_max_features` |
+| `weak_supervision` | `stable_percentile`, `shift_percentile` |
+| `detector` | `persona_dim`, `proj_dim`, `hidden_dim`, `dropout`, `learning_rate`, `epochs`, `patience`, `contrastive_weight`, `smooth_sigma` |
+| `output` | `save_dir`, `save_artifacts` |
 
 ---
 
-## Data: Local or HuggingFace
+## Data Sources
 
-- **Download first (recommended):** Run `python download_data.py --subreddit technology --min_year 2019` to save data locally, then point `data.local_data_dir` in `config.yaml` to the saved folder.
-- **Local (no download):** Place Reddit data in a folder with `dataset_clean.csv` (or `train.csv`). Set `data.local_data_dir` in `config.yaml`.
-- **HuggingFace (on-the-fly):** If `local_data_dir` is empty or missing, data is streamed from `HuggingFaceGECLM/REDDIT_comments`.
+- **Local (recommended)**: Run `download_data.py` first, then the pipeline reads from the local `data reddit/` folder.
+- **HuggingFace (on-the-fly)**: If no local data is found, posts are streamed from `HuggingFaceGECLM/REDDIT_comments` (Pushshift archive).
+
+Posts are filtered to exclude `[deleted]`/`[removed]` content and posts with fewer than 10 words (configurable via `min_words_per_post`).
 
 ---
 
 ## Interpreting Evaluation Metrics
 
-| Metric | Bad | Good |
+| Metric | Weak | Strong |
 |---|---|---|
-| **Contrastiveness (after > before)** | No improvement | Yes, and after > 0.10 |
-| **Spearman(SBERT, Learned)** | < 0.3 | > 0.70 |
-| **Kendall tau** | < 0.2 | > 0.50 |
-| **R²** | < 0.0 (negative) | > 0.50 |
-| **NDCG@5** | < 0.5 | > 0.80 |
-| **Peak height ratio** | < 1.5 | > 3.0 (peak much higher than average) |
-| **Temporal smoothness** | 0.0 (flat) or very high | Similar to SBERT baseline |
+| Contrastiveness (after vs. before) | No improvement | after > before, and after > 0.10 |
+| Spearman (SBERT vs. Learned) | < 0.3 | > 0.70 |
+| Kendall tau | < 0.2 | > 0.50 |
+| R² | < 0.0 (negative) | > 0.50 |
+| NDCG@5 | < 0.5 | > 0.80 |
+| Peak height ratio | < 1.5 | > 3.0 |
+| Temporal smoothness | 0.0 (flat) or very high | Similar to SBERT baseline |
 
 ---
 
-**Based on CSE 261 Project Proposal** — Persona drift detection with weak supervision and neural multi-view fusion.
+## Notes
+
+- GPU is optional. The code automatically falls back to CPU if CUDA is unavailable.
+- The `data_reddit/` folder in the repo is a placeholder. Run `download_data.py` to populate `data reddit/` with actual data.
+- The `output/` folder contains sample results from a previous run on r/technology.
