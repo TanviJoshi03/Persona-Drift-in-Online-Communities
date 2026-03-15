@@ -1,0 +1,2 @@
+mean_drift_sbert,mean_drift_lda,mean_drift_tfidf,mean_drift_learned,smoothness_sbert,smoothness_lda,smoothness_tfidf,smoothness_learned,contrastiveness_before,contrastiveness_after,contrastiveness_improved,spearman_sbert_learned,mean_drift_mmd,smoothness_mmd,spearman_sbert_mmd
+0.05035,0.01204,0.09585,0.33684,0.01951,0.00405,0.01956,0.24891,0.05223,0.79461,True,0.95826,0.07045,0.00924,0.8549
