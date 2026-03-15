@@ -1,0 +1,46 @@
+# Persona Drift — Project config (CSE 261)
+# Edit these before running the pipeline.
+
+# Data: use local saved data (no download) or HuggingFace
+# If local_data_dir is set and contains dataset_clean.csv (or train.csv), that is used first.
+data:
+  local_data_dir: "data reddit"
+  dataset_name: "HuggingFaceGECLM/REDDIT_comments"
+  subreddit_config: "technology"
+  max_samples: 3000000
+  min_posts_per_month: 200
+  min_words_per_post: 10
+
+# Temporal holdout
+split:
+  train_ratio: 0.75
+
+# Representation
+representation:
+  sbert_model: "sentence-transformers/all-MiniLM-L6-v2"
+  lda_n_topics: 10
+  tfidf_max_features: 500
+
+# Weak supervision
+weak_supervision:
+  stable_percentile: 35
+  shift_percentile: 65
+
+# Multi-View Drift Detector (fuses learned embeddings + baseline signals)
+detector:
+  persona_dim: 384
+  n_baselines: 4         # SBERT, LDA, TF-IDF, MMD
+  proj_dim: 64           # projection dim for persona-vector differences
+  hidden_dim: 48         # fusion layer width
+  dropout: 0.3
+  learning_rate: 0.001
+  epochs: 150
+  patience: 30
+  contrastive_weight: 0.5
+  gradient_clip: 1.0
+  smooth_sigma: 0.0      # Gaussian smoothing on output drift curve (0 = off)
+
+# Outputs
+output:
+  save_dir: "outputs"
+  save_artifacts: true
